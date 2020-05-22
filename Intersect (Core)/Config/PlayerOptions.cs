@@ -75,6 +75,8 @@
         /// </summary>
         public int MaxSpells { get; set; } = 35;
 
+        public int JumpHeight { get; set; } = 2;
+
         /// <summary>
         /// The highest value a single stat can be for a player.
         /// </summary>

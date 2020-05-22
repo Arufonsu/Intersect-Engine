@@ -109,6 +109,8 @@ namespace Intersect.Client.Entities
 
         public bool IsMoving { get; set; }
 
+        public bool IsJumping;
+
         //Caching
         public IMapInstance LatestMap { get; set; }
 
@@ -224,6 +226,9 @@ namespace Intersect.Client.Entities
 
         public byte Z { get; set; }
 
+        //animation locking
+        public int lastDir = 1;
+
         public Entity(Guid id, EntityPacket packet, EntityTypes entityType)
         {
             Id = id;
@@ -274,7 +279,7 @@ namespace Intersect.Client.Entities
         public byte Dir
         {
             get => mDir;
-            set => mDir = (byte)((value + Options.Instance.Sprites.Directions) % Options.Instance.Sprites.Directions);
+            set => mDir = (byte)((value + 8) % 8);
         }
 
         public virtual string TransformedSprite
@@ -327,6 +332,8 @@ namespace Intersect.Client.Entities
                         return Options.Instance.Sprites.CastFrames;
                     case SpriteAnimations.Weapon:
                         return Options.Instance.Sprites.WeaponFrames;
+                    case SpriteAnimations.Jump:
+                        return Options.Instance.Sprites.NormalFrames;
                 }
 
                 return Options.Instance.Sprites.NormalFrames;
@@ -523,6 +530,10 @@ namespace Intersect.Client.Entities
         public virtual float GetMovementTime()
         {
             var time = 1000f / (float) (1 + Math.Log(Stat[(int) Stats.Speed]));
+            if (Dir == 0 || Dir == 1 || Dir == 4 || Dir == 5 || Dir == 6 || Dir == 7)
+            {
+                time *= 0.7f;
+            }
             if (IsBlocking)
             {
                 time += time * (float)Options.BlockingSlow;
@@ -620,10 +631,11 @@ namespace Intersect.Client.Entities
             }
             else if (IsMoving)
             {
+                float deplacementTime = ecTime * Options.TileHeight / GetMovementTime();
                 switch (Dir)
                 {
-                    case 0:
-                        OffsetY -= (float)ecTime * (float)Options.TileHeight / GetMovementTime();
+                    case 0: // Up
+                        OffsetY -= deplacementTime;
                         OffsetX = 0;
                         if (OffsetY < 0)
                         {
@@ -632,8 +644,8 @@ namespace Intersect.Client.Entities
 
                         break;
 
-                    case 1:
-                        OffsetY += (float)ecTime * (float)Options.TileHeight / GetMovementTime();
+                    case 1: // Down
+                        OffsetY += deplacementTime;
                         OffsetX = 0;
                         if (OffsetY > 0)
                         {
@@ -642,8 +654,8 @@ namespace Intersect.Client.Entities
 
                         break;
 
-                    case 2:
-                        OffsetX -= (float)ecTime * (float)Options.TileHeight / GetMovementTime();
+                    case 2: // Left
+                        OffsetX -= deplacementTime;
                         OffsetY = 0;
                         if (OffsetX < 0)
                         {
@@ -652,9 +664,82 @@ namespace Intersect.Client.Entities
 
                         break;
 
-                    case 3:
-                        OffsetX += (float)ecTime * (float)Options.TileHeight / GetMovementTime();
+                    case 3: // Right
+                        OffsetX += deplacementTime;
                         OffsetY = 0;
+                        if (OffsetX > 0)
+                        {
+                            OffsetX = 0;
+                        }
+
+                        break;
+                    case 4: // NW     
+                        OffsetY -= deplacementTime;
+                        OffsetX -= deplacementTime;
+
+                        if (OffsetY < 0)
+                        {
+                            OffsetY = 0;
+                        }
+                        if (OffsetX < 0)
+                        {
+                            OffsetX = 0;
+                        }
+
+                        break;
+                    case 5: // NE
+                        OffsetY -= deplacementTime;
+                        OffsetX += deplacementTime;
+
+                        if (OffsetY < 0)
+                        {
+                            OffsetY = 0;
+                        }
+                        if (OffsetX > 0)
+                        {
+                            OffsetX = 0;
+                        }
+                        
+                        break;
+                    case 6: //SW
+                        if (Globals.Me.FallCount > 2 || Globals.Me.Landing == true)
+                        {
+                            OffsetY += (deplacementTime * 2f);
+                        }
+                        else
+                        {
+                            OffsetY += deplacementTime;
+                        }
+                        
+                        OffsetX -= deplacementTime;
+
+                        if (OffsetY > 0)
+                        {
+                            OffsetY = 0;
+                        }
+                        if (OffsetX < 0)
+                        {
+                            OffsetX = 0;
+                        }
+                            
+
+                        break;
+                    case 7: // SE
+                        if (Globals.Me.FallCount > 2 || Globals.Me.Landing == true)
+                        {
+                            OffsetY += (deplacementTime*2f);
+                        }
+                        else
+                        {
+                            OffsetY += deplacementTime;
+                        }
+                        OffsetX += deplacementTime;
+
+                        Console.WriteLine("OffsetY " + OffsetY);
+                        if (OffsetY > 0)
+                        {
+                            OffsetY = 0;
+                        }
                         if (OffsetX > 0)
                         {
                             OffsetX = 0;
@@ -989,7 +1074,33 @@ namespace Intersect.Client.Entities
                 return;
             }
 
-            var d = (Dir + (Options.Instance.Sprites.Directions - 1)) % Options.Instance.Sprites.Directions;
+            var d = 0;
+
+            switch ((Directions)Dir)
+            {
+                case Directions.Up:
+                    d = Globals.Me.Climbing ? 0 : lastDir;
+                    break;
+                case Directions.Down:
+                    d = Globals.Me.Climbing ? 3 : lastDir;
+                    break;
+                case Directions.Left:
+                case Directions.UpLeft:
+                case Directions.DownLeft:
+                    d = 1;
+                    lastDir = 1;
+                    break;
+                case Directions.Right:
+                case Directions.UpRight:
+                case Directions.DownRight:
+                    d = 2;
+                    lastDir = 2;
+                    break;
+                default:
+                    d = 3;
+                    Dir = 0;
+                    break;
+            }
 
             var frameWidth = texture.GetWidth() / SpriteFrames;
             var frameHeight = texture.GetHeight() / Options.Instance.Sprites.Directions;
@@ -1005,6 +1116,10 @@ namespace Intersect.Client.Entities
                     ? Options.Instance.Sprites.NormalSheetAttackFrame
                     : WalkFrame;
             }
+            else if (SpriteAnimation == SpriteAnimations.Jump)
+            {
+                frame = 2;
+            }
 
             var srcRectangle = new FloatRect(frame * frameWidth, d * frameHeight, frameWidth, frameHeight);
             var destRectangle = new FloatRect(
@@ -1017,9 +1132,9 @@ namespace Intersect.Client.Entities
             WorldPos = destRectangle;
 
             //Order the layers of paperdolls and sprites
-            for (var z = 0; z < Options.PaperdollOrder[Dir].Count; z++)
+            for (var z = 0; z < Options.PaperdollOrder[d].Count; z++)
             {
-                var paperdoll = Options.PaperdollOrder[Dir][z];
+                var paperdoll = Options.PaperdollOrder[d][z];
                 var equipSlot = Options.EquipmentSlots.IndexOf(paperdoll);
 
                 //Check for player
@@ -1120,8 +1235,43 @@ namespace Intersect.Client.Entities
                 return;
             }
 
-            var d = (Dir + (Options.Instance.Sprites.Directions -1)) % Options.Instance.Sprites.Directions;
+            var d = 0;
+            
+            switch (Dir)
+            {
+                case 0:
+                    d = 3;
 
+                    break;
+                case 1:
+                    d = 0;
+
+                    break;
+                case 2:
+                    d = 1;
+
+                    break;
+                case 3:
+                    d = 2;
+
+                    break;
+                case 4:
+                    d = 1;
+
+                    break;
+                case 5:
+                    d = 2;
+
+                    break;
+                case 6:
+                    d = 1;
+
+                    break;
+                case 7:
+                    d = 2;
+
+                    break;
+            }
             var frameWidth = paperdollTex.GetWidth() / spriteFrames;
             var frameHeight = paperdollTex.GetHeight() / Options.Instance.Sprites.Directions;
 
@@ -1132,6 +1282,10 @@ namespace Intersect.Client.Entities
                          IsBlocking)
                     ? Options.Instance.Sprites.NormalSheetAttackFrame
                     : WalkFrame;
+            }
+            else if (SpriteAnimation == SpriteAnimations.Jump)
+            {
+                frame = 2;
             }
 
             var srcRectangle = new FloatRect(frame * frameWidth, d * frameHeight, frameWidth, frameHeight);
@@ -1677,8 +1831,12 @@ namespace Intersect.Client.Entities
             {
                 SpriteAnimation = SpriteAnimations.Idle;
             }
-
-            if (IsMoving)
+            if (IsJumping) //Jumping
+            {
+                SpriteAnimation = SpriteAnimations.Jump;
+                LastActionTime = Timing.Global.Milliseconds;
+            }
+            else if (IsMoving && !IsJumping) //Moving
             {
                 SpriteAnimation = SpriteAnimations.Normal;
                 LastActionTime = Timing.Global.Milliseconds;
@@ -1814,6 +1972,7 @@ namespace Intersect.Client.Entities
                 case SpriteAnimations.Normal: break;
 
                 case SpriteAnimations.Idle: break;
+                case SpriteAnimations.Jump: break;
                 case SpriteAnimations.Attack:
                     if (this is Player player && ClassBase.TryGet(player.Class, out var classDescriptor))
                     {
@@ -1941,6 +2100,8 @@ namespace Intersect.Client.Entities
 
         //Movement
         /// <summary>
+        ///     Returns -8 if the tile is blocked by a ladder attribute.
+        ///     Returns -7 if the tile is blocked by a platform attribute.
         ///     Returns -6 if the tile is blocked by a global (non-event) entity
         ///     Returns -5 if the tile is completely out of bounds.
         ///     Returns -4 if a tile is blocked because of a local event.
@@ -2120,6 +2281,14 @@ namespace Intersect.Client.Entities
                         if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Blocked || (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Animation && ((MapAnimationAttribute)gameMap.Attributes[tmpX, tmpY]).IsBlock))
                         {
                             return -2;
+                        }
+                        if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Platform)
+                        {
+                            return -7;
+                        }
+                        if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Ladder)
+                        {
+                            return -8;
                         }
                         else if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.ZDimension)
                         {

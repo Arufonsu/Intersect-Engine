@@ -24,6 +24,8 @@ namespace Intersect.Server.General
 
         public static long Cps = 0;
 
+        public static int FallCount = 0;
+        
         public static List<Player> OnlineList => Clients.FindAll(client => client?.Entity != null)
             .Select(client => client.Entity)
             .ToList();

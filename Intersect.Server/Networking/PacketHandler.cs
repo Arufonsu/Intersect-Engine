@@ -702,6 +702,14 @@ namespace Intersect.Server.Networking
                 var canMove = player.CanMove(packet.Dir);
                 if ((canMove == -1 || canMove == -4) && client.Entity.MoveRoute == null)
                 {
+                    if ((packet.Dir == 0 || packet.Dir == 4 || packet.Dir == 5) && packet.Jh > Options.JumpHeight &&
+                        client.Entity.MoveRoute == null)
+                    {
+                        // prevent jumping if jump height is more than the server's value.
+                        return;
+                    }
+
+                    Globals.FallCount = packet.Fc;
                     player.Move(packet.Dir, player, false);
                     var utcDeltaMs = (Timing.Global.TicksUtc - packet.UTC) / TimeSpan.TicksPerMillisecond;
                     var latencyAdjustmentMs = -(client.Ping + Math.Max(0, utcDeltaMs));
@@ -1163,6 +1171,22 @@ namespace Intersect.Server.Networking
 
                 case 3:
                     attackingTile.Translate(1, 0);
+
+                    break;
+                case 4:
+                    attackingTile.Translate(-1, -1); // UpLeft
+
+                    break;
+                case 5:
+                    attackingTile.Translate(1, -1); // UpRight
+
+                    break;
+                case 6:
+                    attackingTile.Translate(-1, 1); // DownLeft
+
+                    break;
+                case 7:
+                    attackingTile.Translate(1, 1); // DownRight
 
                     break;
             }

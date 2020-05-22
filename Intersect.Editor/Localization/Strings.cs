@@ -971,6 +971,10 @@ namespace Intersect.Editor.Localization
 
             public static LocalizedString ResourceSpawn = @"Resource";
 
+            public static LocalizedString platform = @"Platform";
+
+            public static LocalizedString ladder = @"Ladder";
+
             public static LocalizedString RespawnTime = @"Respawn Time (ms)";
 
             public static LocalizedString RespawnTimeTooltip = @"0 for server default";
@@ -2996,6 +3000,10 @@ Tick timer saved in server config.json.";
                 {"moveright", @"Move Right"},
                 {"movetowardplayer", @"Move Toward Player"},
                 {"moveup", @"Move Up"},
+                {"moveupleft", @"Move Up Left"},
+                {"moveupright", @"Move Up Right"},
+                {"movedownleft", @"Move Down Left"},
+                {"movedownright", @"Move Down Right"},
                 {"setanimation", @"Set Animation..."},
                 {"setattribute", @"Set Attribute"},
                 {"setgraphic", @"Set Graphic..."},

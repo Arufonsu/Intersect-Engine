@@ -919,6 +919,21 @@ namespace Intersect.Server.Entities
                                                         dir = 2;
 
                                                         break;
+                                                    case 4:
+                                                        dir = 5;
+
+                                                        break;
+                                                    case 5:
+                                                        dir = 4;
+
+                                                        break;
+                                                    case 6:
+                                                        dir = 7;
+
+                                                        break;
+                                                    case 7:
+                                                        dir = 6;
+                                                        break;
                                                 }
                                             }
 
@@ -1012,6 +1027,22 @@ namespace Intersect.Server.Entities
                                             dir = 2;
 
                                             break;
+                                        case 4:
+                                            dir = 5;
+
+                                            break;
+                                        case 5:
+                                            dir = 4;
+
+                                            break;
+                                        case 6:
+                                            dir = 7;
+
+                                            break;
+                                        case 7:
+                                            dir = 6;
+
+                                            break;
                                     }
 
                                     if (CanMove(dir) == -1 || CanMove(dir) == -4)
@@ -1081,7 +1112,7 @@ namespace Intersect.Server.Entities
                         }
                         else if (Base.Movement == (int)NpcMovement.TurnRandomly)
                         {
-                            ChangeDir((byte)Randomization.Next(0, Options.Instance.Sprites.Directions));
+                            ChangeDir((byte)Randomization.Next(2, Options.Instance.Sprites.Directions));
                             LastRandomMove = Timing.Global.Milliseconds + Randomization.Next(1000, 3000);
 
                             return;
@@ -1090,7 +1121,7 @@ namespace Intersect.Server.Entities
                         var i = Randomization.Next(0, 1);
                         if (i == 0)
                         {
-                            i = Randomization.Next(0, Options.Instance.Sprites.Directions);
+                            i = Randomization.Next(2, Options.Instance.Sprites.Directions);
                             if (CanMove(i) == -1)
                             {
                                 //check if NPC is snared or stunned

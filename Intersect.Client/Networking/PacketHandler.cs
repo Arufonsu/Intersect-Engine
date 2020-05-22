@@ -681,6 +681,41 @@ namespace Intersect.Client.Networking
                         en.OffsetX = -Options.TileWidth;
 
                         break;
+                    case 4:
+                        en.OffsetY = Options.TileHeight;
+                        en.OffsetX = Options.TileWidth;
+
+                        break;
+                    case 5:
+                        en.OffsetY = Options.TileHeight;
+                        en.OffsetX = -Options.TileWidth;
+
+                        break;
+                    case 6:
+                        if(Globals.Me.FallCount > 2)
+                        {
+                            en.OffsetY = -(Options.TileHeight*2);
+                        }
+                        else
+                        {
+                            en.OffsetY = -Options.TileHeight;
+                        }
+                        
+                        en.OffsetX = Options.TileWidth;
+
+                        break;
+                    case 7:
+                        if (Globals.Me.FallCount > 2)
+                        {
+                            en.OffsetY = -(Options.TileHeight * 2);
+                        }
+                        else
+                        {
+                            en.OffsetY = -Options.TileHeight;
+                        }
+                        en.OffsetX = -Options.TileWidth;
+
+                        break;
                 }
             }
 
