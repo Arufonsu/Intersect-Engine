@@ -809,9 +809,27 @@ namespace Intersect.Client.Core
                 var w = x1 - x;
                 var h = y1 - y;
                 var restrictView = new FloatRect(x, y, w, h);
+                
+                // Soft Camera movement.
+                SoftCameraMove++;
+                if (SoftCameraMove >= 10)
+                {
+                    HCameraView += Randomization.NextDouble();
+                    VCameraView += Randomization.NextDouble();
+                    if (HCameraView > 4)
+                    {
+                        HCameraView -= 1 - Randomization.NextDouble();
+                    }
+                    if (VCameraView > 4)
+                    {
+                        VCameraView -= 1 - Randomization.NextDouble();
+                    }
+                    SoftCameraMove = 0;
+                }
+
                 CurrentView = new FloatRect(
-                    (int) Math.Ceiling(en.GetCenterPos().X - Renderer.GetScreenWidth() / 2f),
-                    (int) Math.Ceiling(en.GetCenterPos().Y - Renderer.GetScreenHeight() / 2f),
+                    (int) Math.Ceiling(en.GetCenterPos().X - Renderer.GetScreenWidth() / 2f) + (int) HCameraView,
+                    (int) Math.Ceiling(en.GetCenterPos().Y - Renderer.GetScreenHeight() / 2f) + (int) VCameraView,
                     Renderer.GetScreenWidth(), Renderer.GetScreenHeight()
                 );
 
@@ -850,6 +868,13 @@ namespace Intersect.Client.Core
 
             Renderer.SetView(CurrentView);
         }
+
+        // Random Soft camera movement variables.
+        private static int SoftCameraMove { get; set; }
+
+        private static double HCameraView { get; set; }
+
+        private static double VCameraView { get; set; }
 
         //Lighting
         private static void ClearDarknessTexture()
