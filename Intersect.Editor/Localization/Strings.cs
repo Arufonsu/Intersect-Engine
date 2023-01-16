@@ -880,6 +880,8 @@ namespace Intersect.Editor.Localization
                 {(int) MapAttributes.Walkable, @"Walkable" },
                 {(int) MapAttributes.Warp, @"Warp" },
                 {(int) MapAttributes.ZDimension, @"Z-Dimension" },
+                {(int) MapAttributes.Platform, @"Platform" },
+                {(int) MapAttributes.Ladder, @"Ladder" },
             };
 
             public static string FormatSpawnLevel(int level)

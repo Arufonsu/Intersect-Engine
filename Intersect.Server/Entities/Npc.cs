@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 
 using Intersect.Enums;
 using Intersect.GameObjects;
+using Intersect.GameObjects.Maps;
 using Intersect.Logging;
 using Intersect.Network.Packets.Server;
 using Intersect.Server.Database;
@@ -521,7 +522,7 @@ namespace Intersect.Server.Entities
             {
                 canMove = mResetting ? -1 : canMove;
             }
-            if ((canMove == -1 || canMove == -4) && IsFleeing() && Options.Instance.NpcOpts.AllowResetRadius)
+            if ((canMove == -1 || canMove == -4 || canMove == -7 || canMove == -8) && IsFleeing() && Options.Instance.NpcOpts.AllowResetRadius)
             {
                 var yOffset = 0;
                 var xOffset = 0;
@@ -566,6 +567,10 @@ namespace Intersect.Server.Entities
                         break;
                 }
 
+                MapController mapController = null;
+                int tileX = 0;
+                int tileY = 0;
+                
                 if (tile.Translate(xOffset, yOffset))
                 {
                     //If this would move us past our reset radius then we cannot move.
@@ -574,6 +579,69 @@ namespace Intersect.Server.Entities
                     {
                         return -2;
                     }
+                    
+                    mapController = MapController.Get(tile.GetMapId());
+                tileX = tile.GetX();
+                tileY = tile.GetY();
+                var tileAttribute = mapController.Attributes[tileX, tileY];
+                if (tileAttribute != null)
+                {
+                    switch (tileAttribute.Type)
+                    {
+                        case MapAttributes.Blocked:
+                        case MapAttributes.Animation when ((MapAnimationAttribute)tileAttribute).IsBlock:
+                        {
+                            return -2;
+                        }
+                        case MapAttributes.NpcAvoid when (this is Npc):
+                            return -2;
+                        case MapAttributes.Platform:
+                            if (moveDir == 1 || Dir == 0)
+                            {
+                                return -1;
+                            }
+                            return -7;
+                        case MapAttributes.Ladder:
+                            return -8;
+                        case MapAttributes.ZDimension when ((MapZDimensionAttribute) tileAttribute).BlockedLevel > 0 &&
+                                                           ((MapZDimensionAttribute) tileAttribute).BlockedLevel - 1 == Z:
+                            return -3;
+                        case MapAttributes.Slide:
+                            switch (((MapSlideAttribute) tileAttribute).Direction)
+                            {
+                                case 1:
+                                    if (moveDir == 1)
+                                    {
+                                        return -4;
+                                    }
+
+                                    break;
+                                case 2:
+                                    if (moveDir == 0)
+                                    {
+                                        return -4;
+                                    }
+
+                                    break;
+                                case 3:
+                                    if (moveDir == 3)
+                                    {
+                                        return -4;
+                                    }
+
+                                    break;
+                                case 4:
+                                    if (moveDir == 2)
+                                    {
+                                        return -4;
+                                    }
+
+                                    break;
+                            }
+
+                            break;
+                    }
+                }
                 }
             }
             return canMove;
@@ -739,7 +807,7 @@ namespace Intersect.Server.Entities
                     var curMapLink = MapId;
                     base.Update(timeMs);
                     var tempTarget = Target;
-
+                    //Check if NPC is stunned or asleep, if so, return
                     foreach (var status in CachedStatuses)
                     {
                         if (status.Type == StatusTypes.Stun || status.Type == StatusTypes.Sleep)
@@ -748,17 +816,22 @@ namespace Intersect.Server.Entities
                         }
                     }
 
+                    // //Check if NPC is on the ground, if not, move down
+                    // if (!OnGround())
+                    // {
+                    //     Move(1, null);
+                    // }
+                    
                     var fleeing = IsFleeing();
-
                     if (MoveTimer < Timing.Global.Milliseconds)
                     {
                         var targetMap = Guid.Empty;
                         var targetX = 0;
                         var targetY = 0;
                         var targetZ = 0;
-
-                        //TODO Clear Damage Map if out of combat (target is null and combat timer is to the point that regen has started)
-                        if (tempTarget != null && (Options.Instance.NpcOpts.ResetIfCombatTimerExceeded && Timing.Global.Milliseconds > CombatTimer))
+                        //TODO: Clear Damage Map if out of combat (target is null and combat timer is the point that regen has started)
+                        if (tempTarget != null && (Options.Instance.NpcOpts.ResetIfCombatTimerExceeded &&
+                                                   Timing.Global.Milliseconds > CombatTimer))
                         {
                             if (CheckForResetLocation(true))
                             {
@@ -766,15 +839,16 @@ namespace Intersect.Server.Entities
                                 {
                                     PacketSender.SendNpcAggressionToProximity(this);
                                 }
+
                                 return;
                             }
                         }
 
-                        // Are we resetting? If so, regenerate completely!
+                        //Are we resetting? If so, regenerate completely!
                         if (mResetting)
-                        {
+                        {   
                             var distance = GetDistanceTo(AggroCenterMap, AggroCenterX, AggroCenterY);
-                            // Have we reached our destination? If so, clear it.
+                            //Have we reached our destination? If so, clear it.
                             if (distance < 1)
                             {
                                 ResetAggroCenter(out targetMap);
@@ -881,7 +955,7 @@ namespace Intersect.Server.Entities
 
                         }
 
-                        if (mPathFinder.GetTarget() != null && Base.Movement != (int)NpcMovement.Static)
+                        if (mPathFinder.GetTarget() != null && Base.Movement != (int)NpcMovement.Static && !Falling && OnGround())
                         {
                             TryCastSpells();
                             // TODO: Make resetting mobs actually return to their starting location.
@@ -937,7 +1011,7 @@ namespace Intersect.Server.Entities
                                                 }
                                             }
 
-                                            if (CanMove(dir) == -1 || CanMove(dir) == -4)
+                                            if (CanMove(dir) == -1 || CanMove(dir) == -4 || CanMove(dir) == -8)
                                             {
                                                 //check if NPC is snared or stunned
                                                 foreach (var status in CachedStatuses)
@@ -950,6 +1024,12 @@ namespace Intersect.Server.Entities
                                                     }
                                                 }
 
+                                                // if (!OnGround())
+                                                // {
+                                                //     dir = 1;
+                                                //     Move((byte)dir, null);
+                                                // }
+
                                                 Move((byte)dir, null);
                                             }
                                             else
@@ -960,17 +1040,10 @@ namespace Intersect.Server.Entities
                                             // Are we resetting?
                                             if (mResetting)
                                             {
-                                                // Have we reached our destination? If so, clear it.
-                                                if (GetDistanceTo(AggroCenterMap, AggroCenterX, AggroCenterY) == 0)
+                                                var distance = GetDistanceTo(AggroCenterMap, AggroCenterX, AggroCenterY);
+                                                if (distance < 1)
                                                 {
-                                                    targetMap = Guid.Empty;
-
-                                                    // Reset our aggro center so we can get "pulled" again.
-                                                    AggroCenterMap = null;
-                                                    AggroCenterX = 0;
-                                                    AggroCenterY = 0;
-                                                    AggroCenterZ = 0;
-                                                    mPathFinder?.SetTarget(null);
+                                                    ResetAggroCenter(out targetMap);
                                                     mResetting = false;
                                                 }
                                             }  
@@ -1045,7 +1118,7 @@ namespace Intersect.Server.Entities
                                             break;
                                     }
 
-                                    if (CanMove(dir) == -1 || CanMove(dir) == -4)
+                                    if (CanMove(dir) == -1 || CanMove(dir) == -4 || CanMove(dir) == -8)
                                     {
                                         //check if NPC is snared or stunned
                                         foreach (var status in CachedStatuses)
@@ -1103,48 +1176,243 @@ namespace Intersect.Server.Entities
                         {
                             return;
                         }
-
+                        
+                        //check if NPC is snared or stunned
+                        foreach (var status in CachedStatuses)
+                        {
+                            if (status.Type == StatusTypes.Stun ||
+                                status.Type == StatusTypes.Snare ||
+                                status.Type == StatusTypes.Sleep)
+                            {
+                                return;
+                            }
+                        }
+                        
                         if (Base.Movement == (int)NpcMovement.StandStill)
                         {
                             LastRandomMove = Timing.Global.Milliseconds + Randomization.Next(1000, 3000);
 
                             return;
                         }
-                        else if (Base.Movement == (int)NpcMovement.TurnRandomly)
-                        {
-                            ChangeDir((byte)Randomization.Next(2, Options.Instance.Sprites.Directions));
-                            LastRandomMove = Timing.Global.Milliseconds + Randomization.Next(1000, 3000);
+                        // else if (Base.Movement == (int)NpcMovement.TurnRandomly && OnGround())
+                        // {
+                        //     ChangeDir((byte)Randomization.Next(1, 4));
+                        //     LastRandomMove = Timing.Global.Milliseconds + Randomization.Next(1000, 3000);
+                        //     return;
+                        // }
 
+                        var i = Randomization.Next(1, 6);
+                        /*if (CanMove(i) == -1 || CanMove(i) == -8)
+                        {
+                            if (!OnGround() || Falling)
+                            {
+                                i = 1;
+                                LastRandomMove = Timing.Global.Milliseconds;
+                                Move((byte)i, null);
+                                Move((byte)i, null);
+                                return;
+                            }
+                            else
+                            {
+                                i = Randomization.Next(1, 6);
+                            }
+
+                            Move((byte)i, null);
+                        }*/
+                        PlatformingChecksA();
+                        if (Falling && !OnGround())
+                        {
                             return;
                         }
 
-                        var i = Randomization.Next(0, 1);
-                        if (i == 0)
+                        switch (i)
                         {
-                            i = Randomization.Next(2, Options.Instance.Sprites.Directions);
-                            if (CanMove(i) == -1)
-                            {
-                                //check if NPC is snared or stunned
-                                foreach (var status in CachedStatuses)
+                            case 0: // Up
+                                if (CanMove(0) == -2)
                                 {
-                                    if (status.Type == StatusTypes.Stun ||
-                                        status.Type == StatusTypes.Snare ||
-                                        status.Type == StatusTypes.Sleep)
-                                    {
-                                        return;
-                                    }
+                                    return;
                                 }
 
-                                Move((byte)i, null);
-                            }
+                                if (CanMove(0) == -1 || CanMove(0) == -7 || CanMove(0) == -8)
+                                {
+                                    Dir = 0;
+                                }
+
+                                if (CanMove(0) == -8)
+                                {
+                                    Climbing = true;
+                                    Jumping = false;
+                                    IsJumping = false;
+                                }
+                                else
+                                {
+                                    Climbing = false;
+                                    Jumping = true;
+                                    JumpDir = 0;
+                                    JumpHeight++;
+                                }
+
+                                break;
+
+                            case 1: // Down
+                                int downTile1 = CanMove(1);
+                                int downTile2 = CanMove(-1);
+
+                                if (downTile1 == -2)
+                                {
+                                    break;
+                                }
+
+                                if (downTile1 == -1 || downTile1 == -7 || downTile2 == -1 || downTile2 == -7 ||
+                                    downTile1 == -8 ||
+                                    downTile2 == -8)
+                                {
+                                    Dir = 1;
+                                }
+
+                                if (downTile2 == -8)
+                                {
+                                    Climbing = true;
+                                    Jumping = false;
+                                    IsJumping = false;
+                                }
+                                else
+                                {
+                                    EdgeBlockOnGround();
+                                }
+
+                                break;
+
+                            case 2: // Left
+                                switch (CanMove(2))
+                                {
+                                    case -1:
+                                    case -7 when OnGround():
+                                    case -8:
+                                        Dir = 2;
+                                        break;
+                                    case -2:
+                                        break;
+                                }
+
+                                if (!Falling && (CanMove(6) == -1 ||
+                                                 CanMove(2) == -1))
+                                {
+                                    EdgeBlockOnGround();
+                                }
+
+                                break;
+
+                            case 3: // Right
+                                switch (CanMove(3))
+                                {
+                                    case -1:
+                                    case -7 when OnGround():
+                                    case -8:
+                                        Dir = 3;
+                                        break;
+                                    case -2:
+                                        break;
+                                }
+
+                                if (!Falling && (CanMove(7) == -1 ||
+                                                 CanMove(3) == -1))
+                                {
+                                    EdgeBlockOnGround();
+                                }
+
+                                break;
+
+                            case 4: // UpLeft
+                                int upLeft1 = CanMove(4);
+                                int upLeft2 = CanMove(2);
+                                if (upLeft1 == -1 || upLeft2 == -1 || upLeft1 == -8 || upLeft2 == -8 || upLeft1 == -7 ||
+                                    upLeft2 == -7)
+                                {
+                                    IsJumping = true;
+                                    Jumping = true;
+                                    Climbing = false;
+                                    Dir = 4;
+                                    JumpDir = 4;
+                                    JumpHeight++;
+                                }
+
+                                if (upLeft1 == -2 || upLeft2 == -2)
+                                {
+                                    BlockTileOnAir();
+                                }
+
+                                break;
+
+                            case 5: // UpRight
+                                int upRight1 = CanMove(5);
+                                int upRight2 = CanMove(3);
+                                if (upRight1 == -1 || upRight2 == -1 || upRight1 == -8 || upRight2 == -8 ||
+                                    upRight1 == -7 ||
+                                    upRight2 == -7)
+                                {
+                                    IsJumping = true;
+                                    Jumping = true;
+                                    Climbing = false;
+                                    Dir = 5;
+                                    JumpDir = 5;
+                                    JumpHeight++;
+                                }
+
+                                if (upRight1 == -2 || upRight2 == -2)
+                                {
+                                    BlockTileOnAir();
+                                }
+
+                                break;
+
+                            case 6: // DownLeft
+                                if (OnGround())
+                                {
+                                    break;
+                                }
+
+                                int downLeft1 = CanMove(6);
+                                int downLeft2 = CanMove(2);
+                                if (downLeft1 == -1 || downLeft2 == -1 || downLeft1 == -8 || downLeft2 == -8)
+                                {
+                                    IsJumping = true;
+                                    Dir = 6;
+                                    FallDir = 6;
+                                }
+
+                                if (downLeft1 == -2 || downLeft2 == -2)
+                                {
+                                    BlockTileOnAir();
+                                }
+
+                                break;
+
+                            case 7: // DownRight
+                                if (OnGround())
+                                {
+                                    break;
+                                }
+
+                                int downRight1 = CanMove(7);
+                                int downRight2 = CanMove(3);
+                                if (downRight1 == -1 || downRight2 == -1 || downRight1 == -8 || downRight2 == -8)
+                                {
+                                    IsJumping = true;
+                                    Dir = 7;
+                                    FallDir = 7;
+                                }
+
+                                if (downRight2 == -2 || downRight2 == -2)
+                                {
+                                    BlockTileOnAir();
+                                }
+
+                                break;
                         }
 
-                        LastRandomMove = Timing.Global.Milliseconds + Randomization.Next(1000, 3000);
-
-                        if (fleeing)
-                        {
-                            LastRandomMove = Timing.Global.Milliseconds + (long) GetMovementTime();
-                        }
+                        Move((byte)i, null);
+                        LastRandomMove = Timing.Global.Milliseconds + (long)GetMovementTime();
                     }
 
                     //If we switched maps, lets update the maps

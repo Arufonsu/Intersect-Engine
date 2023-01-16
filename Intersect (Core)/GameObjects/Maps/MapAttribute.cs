@@ -320,16 +320,14 @@ namespace Intersect.GameObjects.Maps
         }
     }
 
-    public class MapPlatformAttribute : MapAttribute
+    public partial class MapPlatformAttribute : MapAttribute
     {
-
-        public override MapAttributes Type { get; } = MapAttributes.Platform;
-
+        public override MapAttributes Type => MapAttributes.Platform;
     }
 
-    public class MapLadderAttribute : MapAttribute
+    public partial class MapLadderAttribute : MapAttribute
     {
-        public override MapAttributes Type { get; } = MapAttributes.Ladder;
+        public override MapAttributes Type => MapAttributes.Ladder;
     }
 
 }

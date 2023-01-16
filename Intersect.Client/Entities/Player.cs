@@ -136,22 +136,6 @@ namespace Intersect.Client.Entities
         /// </summary>
         public GuildMember[] GuildMembers = new GuildMember[0];
 
-        public bool Jumping = false;
-
-        public bool Falling = false;
-
-        public int JumpHeight = 0;
-
-        public int JumpDir = -1;
-
-        public int FallDir = -1;
-
-        public int FallCount = 0;
-
-        public bool Climbing = false;
-
-        public bool Landing = false;
-
         public Player(Guid id, PlayerEntityPacket packet) : base(id, packet, EntityTypes.Player)
         {
             for (var i = 0; i < Options.Instance.PlayerOpts.HotbarSlotCount; i++)
@@ -245,15 +229,14 @@ namespace Intersect.Client.Entities
             {
                 HandleInput();
             }
-
+            
+            if (this == Globals.Me && IsMoving == false)
+            {
+                ProcessDirectionalInput();
+            }
 
             if (!IsBusy)
             {
-                if (this == Globals.Me && IsMoving == false)
-                {
-                    ProcessDirectionalInput();
-                }
-
                 if (Controls.KeyDown(Control.AttackInteract))
                 {
                     if (IsCasting)
@@ -1191,30 +1174,34 @@ namespace Intersect.Client.Entities
                 movey = 1;
             }
 
-            if (Controls.KeyDown(Control.MoveDown))
+            if (Controls.KeyDown(Control.MoveDown) && OnGround() && !Falling)
             {
                 movey = -1;
             }
 
             if (Controls.KeyDown(Control.MoveLeft))
             {
-                movex = -1;
-
-                //allow change of direction in air
-                if(IsJumping)
+                if (!OnGround() && !Climbing)
                 {
+                    movex = -0.15f;
                     Globals.Me.lastDir = 1;
+                }
+                else
+                {
+                    movex = -1f;
                 }
             }
 
             if (Controls.KeyDown(Control.MoveRight))
             {
-                movex = 1;
-
-                //allow change of direction in air
-                if (IsJumping)
+                if (!OnGround())
                 {
+                    movex = 0.15f;
                     Globals.Me.lastDir = 2;
+                }
+                else
+                {
+                    movex = 1f;
                 }
             }
 
@@ -2012,27 +1999,15 @@ namespace Intersect.Client.Entities
                                    (((float)Options.MaxStatValue - speed) /
                                     (float)Options.MaxStatValue)));
         }
-        
-        public bool OnGround()
-        {
-            bool result = false;
-
-            IEntity blockedBy = null;
-
-            // This means that the player is on ground.
-            if (IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -2 || IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -7 || IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -8)
-            {
-                result = true;
-            }
-
-            return result;
-        }
 
         //Movement Processing
         private void ProcessDirectionalInput()
         {
+            //var syncWithServer = false; // set false to not sync with the server while working with the client side !
+            // make sure to change this to true once you are done working with syncing all this with the server.
+
             //Check if player is crafting
-            if (Globals.InCraft == true)
+            if (Globals.InCraft)
             {
                 return;
             }
@@ -2063,458 +2038,331 @@ namespace Intersect.Client.Entities
             var tmpY = (sbyte)Y;
             IEntity blockedBy = null;
 
-            if (OnGround())
+            PlatformingChecksA();
+
+            if (MoveDir <= -1 || Globals.EventDialogs.Count != 0)
             {
-                Globals.Me.Jumping = false;
-                IsJumping = false;
+                return;
             }
-            //should we be falling?
-            if (OnGround() == false && Globals.Me.Jumping == false && Globals.Me.Climbing == false)
+
+            // Try to move if able and not casting spells.
+            if (IsMoving || MoveTimer >= Timing.Global.Milliseconds ||
+                (!Options.Combat.MovementCancelsCast && IsCasting))
             {
-                Globals.Me.Falling = true;
-                IsJumping = true;
+                return;
+            }
+
+            if (Options.Combat.MovementCancelsCast)
+            {
+                CastTime = 0;
+            }
+
+            switch (MoveDir)
+            {
+                case 0: // Up
+                    int upTile1 = IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy);
+                    int upTile2 = IsTileBlocked(X, Y, Z, MapId, ref blockedBy);
+                    OffsetY = Options.TileHeight;
+                    OffsetX = 0;
+                    
+                    if (upTile1 == -2)
+                    {
+                        BlockTileOnGround();
+                        return;
+                    }
+                    
+                    if (upTile1 == -1 || upTile1 == -7 || upTile1 == -8  || upTile2 == -1 || upTile2 == -7 ||
+                        upTile2 == -8)
+                    {
+                        Dir = 0;
+                        IsMoving = true;
+                        tmpY--;
+                    }
+
+                    if (upTile2 == -8)
+                    {
+                        Climbing = true;
+                        Jumping = false;
+                        IsJumping = false;
+                    }
+                    else
+                    {
+                        Climbing = false;
+                        Jumping = true;
+                        JumpDir = 0;
+                        JumpHeight++;
+                    }
+
+                    break;
+
+                case 1: // Down
+                    int downTile1 = IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy);
+                    int downTile2 = IsTileBlocked(X, Y, Z, MapId, ref blockedBy);
+
+                    if (downTile1 == -2)
+                    {
+                        BlockTileOnGround();
+                        return;
+                    }
+
+                    if (downTile1 == -1 || downTile1 == -7 || downTile2 == -1 || downTile2 == -7 || downTile1 == -8 ||
+                        downTile2 == -8)
+                    {
+                        IsMoving = true;
+                        Dir = 1;
+                        OffsetY = -Options.TileHeight;
+                        OffsetX = 0;
+                        tmpY++;
+                    }
+
+                    if (downTile2 == -8)
+                    {
+                        Climbing = true;
+                        Jumping = false;
+                        IsJumping = false;
+                    }
+                    else
+                    {
+                        EdgeBlockOnGround();
+                    }
+
+                    break;
+
+                case 2: // Left
+                    switch (IsTileBlocked(X - 1, Y, Z, MapId, ref blockedBy))
+                    {
+                        case -1:
+                        case -7 when OnGround():
+                        case -8:
+                            tmpX--;
+                            IsMoving = true;
+                            Dir = 2;
+                            OffsetY = 0;
+                            OffsetX = Options.TileWidth;
+                            break;
+                        case -2:
+                            BlockTileOnGround();
+                            break;
+                    }
+
+                    if (!Falling && (IsTileBlocked(X - 1, Y + 1, Z, MapId, ref blockedBy) == -1 ||
+                                     IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -1))
+                    {
+                        EdgeBlockOnGround();
+                    }
+
+                    break;
+
+                case 3: // Right
+                    switch (IsTileBlocked(X + 1, Y, Z, MapId, ref blockedBy))
+                    {
+                        case -1:
+                        case -7 when OnGround():
+                        case -8:
+                            tmpX++;
+                            IsMoving = true;
+                            Dir = 3;
+                            OffsetY = 0;
+                            OffsetX = -Options.TileWidth;
+                            break;
+                        case -2:
+                            BlockTileOnGround();
+                            break;
+                    }
+
+                    if (!Falling && (IsTileBlocked(X + 1, Y + 1, Z, MapId, ref blockedBy) == -1 ||
+                                     IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -1))
+                    {
+                        EdgeBlockOnGround();
+                    }
+
+                    break;
+
+                case 4: // UpLeft
+                    int upLeft1 = IsTileBlocked(X - 1, Y - 1, Z, MapId, ref blockedBy);
+                    int upLeft2 = IsTileBlocked(X - 1, Y, Z, MapId, ref blockedBy);
+                    if (upLeft1 == -1 || upLeft2 == -1 || upLeft1 == -8 || upLeft2 == -8 || upLeft1 == -7 ||
+                        upLeft2 == -7)
+                    {
+                        IsMoving = true;
+                        IsJumping = true;
+                        Jumping = true;
+                        Climbing = false;
+                        OffsetY = Options.TileHeight;
+                        OffsetX = Options.TileWidth;
+                        Dir = 4;
+                        JumpDir = 4;
+                        JumpHeight++;
+                        tmpY--;
+                        tmpX--;
+                    }
+                    if (upLeft1 == -2 || upLeft2 == -2)
+                    {
+                        BlockTileOnAir(ref tmpY);
+                    }
+
+                    break;
+
+                case 5: // UpRight
+                    int upRight1 = IsTileBlocked(X + 1, Y - 1, Z, MapId, ref blockedBy);
+                    int upRight2 = IsTileBlocked(X + 1, Y, Z, MapId, ref blockedBy);
+                    if (upRight1 == -1 || upRight2 == -1 || upRight1 == -8 || upRight2 == -8 || upRight1 == -7 ||
+                        upRight2 == -7)
+                    {
+                        OffsetY = Options.TileHeight;
+                        OffsetX = -Options.TileWidth;
+                        IsMoving = true;
+                        IsJumping = true;
+                        Jumping = true;
+                        Climbing = false;
+                        Dir = 5;
+                        JumpDir = 5;
+                        JumpHeight++;
+                        tmpY--;
+                        tmpX++;
+                    }
+                    if (upRight1 == -2 || upRight2 == -2)
+                    {
+                        BlockTileOnAir(ref tmpY);
+                    }
+
+                    break;
+
+                case 6: // DownLeft
+                    if (OnGround())
+                    {
+                        break;
+                    }
+
+                    int downLeft1 = IsTileBlocked(X - 1, Y + 1, Z, MapId, ref blockedBy);
+                    int downLeft2 = IsTileBlocked(X - 1, Y, Z, MapId, ref blockedBy);
+                    if (downLeft1 == -1 || downLeft2 == -1 || downLeft1 == -8 || downLeft2 == -8)
+                    {
+                        OffsetY = -Options.TileHeight;
+                        OffsetX = Options.TileWidth;
+                        IsMoving = true;
+                        IsJumping = true;
+                        Dir = 6;
+                        FallDir = 6;
+                        tmpY++;
+                        tmpX--;
+                    }
+                    if (downLeft1 == -2 || downLeft2 == -2)
+                    {
+                        BlockTileOnAir(ref tmpY);
+                    }
+
+                    break;
+
+                case 7: // DownRight
+                    if (OnGround())
+                    {
+                        break;
+                    }
+
+                    int downRight1 = IsTileBlocked(X + 1, Y + 1, Z, MapId, ref blockedBy);
+                    int downRight2 = IsTileBlocked(X + 1, Y, Z, MapId, ref blockedBy);
+                    if (downRight1 == -1 || downRight2 == -1 || downRight1 == -8 || downRight2 == -8)
+                    {
+                        OffsetY = -Options.TileHeight;
+                        OffsetX = -Options.TileWidth;
+                        IsMoving = true;
+                        IsJumping = true;
+                        Dir = 7;
+                        FallDir = 7;
+                        tmpY++;
+                        tmpX++;
+                    }
+
+                    if (downRight2 == -2 || downRight2 == -2)
+                    {
+                        BlockTileOnAir(ref tmpY);
+                    }
+
+                    break;
+            }
+
+            if (blockedBy != mLastBumpedEvent)
+            {
+                mLastBumpedEvent = null;
+            }
+
+            if (IsMoving)
+            {
+                if (tmpX < 0 || tmpY < 0 || tmpX > Options.MapWidth - 1 || tmpY > Options.MapHeight - 1)
+                {
+                    //syncWithServer = true;
+                    var gridX = Maps.MapInstance.Get(MapId).GridX;
+                    var gridY = Maps.MapInstance.Get(MapId).GridY;
+                    if (tmpX < 0)
+                    {
+                        gridX--;
+                        X = (byte)(Options.MapWidth - 1);
+                    }
+                    else if (tmpX >= Options.MapWidth)
+                    {
+                        X = 0;
+                        gridX++;
+                    }
+                    else
+                    {
+                        X = (byte)tmpX;
+                    }
+
+                    if (tmpY < 0)
+                    {
+                        gridY--;
+                        Y = (byte)(Options.MapHeight - 1);
+                    }
+                    else if (tmpY >= Options.MapHeight)
+                    {
+                        Y = 0;
+                        gridY++;
+                    }
+                    else
+                    {
+                        Y = (byte)tmpY;
+                    }
+
+                    if (MapId != Globals.MapGrid[gridX, gridY])
+                    {
+                        MapId = Globals.MapGrid[gridX, gridY];
+                        FetchNewMaps();
+                    }
+                }
+                else
+                {
+                    X = (byte)tmpX;
+                    Y = (byte)tmpY;
+                }
+
+                // if (!syncWithServer)
+                // {
+                //     return;
+                // }
+
+                PacketSender.SendMove();
+                TryToChangeDimension();
+                PacketSender.SendMove();
+                MoveTimer = (Timing.Global.Milliseconds) + (long)GetMovementTime();
             }
             else
             {
-                Globals.Me.Falling = false;
-                FallDir = -1;
-                IsJumping = false;
-                FallCount = 0;
-                Landing = false;
-            }
-
-            //We are falling
-            if (Globals.Me.Falling == true)
-            {
-                Globals.Me.Jumping = false;
-
-                //if we dont check if we are on thr ground, we cant land on the ground
-                if (OnGround() == false)
-                {
-                    Globals.Me.FallCount++;
-                    if (FallDir == 1)
-                    {
-                        Globals.Me.MoveDir = 1;
-                    }
-                    else if (FallDir == 6)
-                    {
-                        Globals.Me.MoveDir = 6;
-                    }
-                    else if (FallDir == 7)
-                    {
-                        Globals.Me.MoveDir = 7;
-                    }
-                    else
-                    {
-                        if (Controls.KeyDown(Control.MoveLeft))
-                        {
-                            Globals.Me.MoveDir = 6;
-                            FallDir = 6;
-                        }
-                        else if (Controls.KeyDown(Control.MoveRight))
-                        {
-                            Globals.Me.MoveDir = 7;
-                            FallDir = 7;
-                        }
-                        else
-                        {
-                            Globals.Me.MoveDir = 1;
-                            FallDir = 1;
-                        }
-                    }
-                }
-                else
-                {
-                    Globals.Me.FallCount = 0;
-                }
-            }
-
-            //We are climbing
-            if(Climbing == true)
-            {
-                IsJumping = false;
-                if(MoveDir == 1 || MoveDir == 0)
-                {
-                    Globals.Me.Jumping = false;
-                    Globals.Me.Falling = false;
-                }
-                else
-                {
-                    MoveDir = -1;
-                }
-                
-            }
-
-            //we are trying to jump
-            if ((MoveDir == 0 || MoveDir == 4 || MoveDir == 5) && Jumping == false && Falling == false && OnGround() == true)
-            {
-                Globals.Me.Jumping = true;
-                IsJumping = true;
-                FallDir = -1;
-            }
-            
-            //we only want to jump to a certain height
-            if (Globals.Me.Jumping == true)
-            {
-                if (JumpHeight >= Options.JumpHeight)
-                {
-                    Globals.Me.Jumping = false;
-                    
-                    JumpHeight = 0;
-
-                    if (OnGround() == false)
-                    {
-                        if (JumpDir == 0)
-                        {
-                            Globals.Me.MoveDir = 1;
-                            FallDir = 1;
-                        }
-                        else if (JumpDir == 4)
-                        {
-                            Globals.Me.MoveDir = 6;
-                            FallDir = 6;
-                        }
-                        else if (JumpDir == 5)
-                        {
-                            Globals.Me.MoveDir = 7;
-                            FallDir = 7;
-                        }
+                // if (!syncWithServer)
+                // {
+                //     return;
+                // }
                         
-                    }
-
-                    JumpDir = -1;
-                }
-                //We are jumping still
-                else
+                if (MoveDir != Dir)
                 {
-                    IsJumping = true;
-                    if (JumpDir == 0)
-                    {
-                        Globals.Me.MoveDir = 0;
-                    }
-                    else if (JumpDir == 4)
-                    {
-                        Globals.Me.MoveDir = 4;
-                    }
-                    else if (JumpDir == 5)
-                    {
-                        Globals.Me.MoveDir = 5;
-                    }
+                    Dir = (byte)MoveDir;
+                    PacketSender.SendDirection(Dir);
                 }
-            }
 
-            if (MoveDir > -1 && Globals.EventDialogs.Count == 0)
-            {
-                //Try to move if able and not casting spells.
-                if (!IsMoving && MoveTimer < Timing.Global.Milliseconds && (Options.Combat.MovementCancelsCast || !IsCasting))
+                if (blockedBy != null && mLastBumpedEvent != blockedBy && blockedBy is Event)
                 {
-                    if (Options.Combat.MovementCancelsCast)
-                    {
-                        CastTime = 0;
-                    }
-
-                    switch (MoveDir)
-                    {
-                        case 0: // Up
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -7 || IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -8)
-                            {
-                                tmpY--;
-                                IsMoving = true;
-                                Dir = 0;
-                                OffsetY = Options.TileHeight;
-                                OffsetX = 0;
-
-                                // Did the player hit a ladder?
-                                if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -8)
-                                {
-                                    Climbing = true;
-                                    Globals.Me.Jumping = false;
-                                    IsJumping = false;
-                                }
-                                else
-                                {
-                                    Climbing = false;
-                                    IsJumping = true;
-                                    Globals.Me.Jumping = true;
-                                    JumpHeight++;
-                                    JumpDir = 0;
-                                }
-                            }
-                            else
-                            {
-                                JumpHeight = 1;
-                                Globals.Me.Jumping = false;
-                            }
-
-                            break;
-                        case 1: // Down
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -7 || IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -8)
-                            {
-                                if (Globals.Me.FallCount > 2)
-                                {
-                                    if (IsTileBlocked(X, Y + 2, Z, MapId, ref blockedBy) == -1 || IsTileBlocked(X, Y + 2, Z, MapId, ref blockedBy) == -8)
-                                    {
-                                        tmpY+=2;
-                                        IsMoving = true;
-                                        Dir = 1;
-                                        OffsetY = -(Options.TileHeight*2);
-                                        OffsetX = 0;
-                                    }
-                                    else
-                                    {
-                                        FallCount = 0;
-                                    }
-                                }
-                                else
-                                {
-                                    tmpY++;
-                                    IsMoving = true;
-                                    Dir = 1;
-                                    OffsetY = -Options.TileHeight;
-                                    OffsetX = 0;
-                                }
-                                
-                               
-                                // Did the player hit a ladder?
-                                if (IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -8)
-                                {
-                                    Climbing = true;
-                                    Globals.Me.Jumping = false;
-                                    IsJumping = false;
-                                }
-                                else
-                                {
-                                    Climbing = false;
-                                    IsJumping = true;
-                                    FallDir = 1;
-                                }
-                            }
-
-                            break;
-                        case 2: // Left
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || (IsTileBlocked(X - 1, Y, Z, MapId, ref blockedBy) == -7) || (IsTileBlocked(X - 1, Y, Z, MapId, ref blockedBy) == -8))
-                            {
-                                tmpX--;
-                                IsMoving = true;
-                                Dir = 2;
-                                OffsetY = 0;
-                                OffsetX = Options.TileWidth;
-                            }
-
-                            break;
-                        case 3: // Right
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || (IsTileBlocked(X + 1, Y, Z, MapId, ref blockedBy) == -7) || (IsTileBlocked(X - 1, Y, Z, MapId, ref blockedBy) == -8))
-                            {
-                                tmpX++;
-                                IsMoving = true;
-                                Dir = 3;
-                                OffsetY = 0;
-                                OffsetX = -Options.TileWidth;
-                            }
-
-                            break;
-                        case 4: // NW
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || IsTileBlocked(X - 1, Y - 1, Z, MapId, ref blockedBy) == -7 || IsTileBlocked(X - 1, Y - 1, Z, MapId, ref blockedBy) == -8)
-                            {
-                                tmpY--;
-                                tmpX--;
-                                Dir = 4;
-                                IsMoving = true;
-                                IsJumping = true;
-                                Globals.Me.Jumping = true;
-                                OffsetY = Options.TileHeight;
-                                OffsetX = Options.TileWidth;
-                                JumpHeight++;
-                                JumpDir = 4;
-                            }
-                            else
-                            {
-                                JumpHeight = 1;
-                                JumpDir = -1;
-                                IsJumping = false;
-                                Globals.Me.Jumping = false;
-                            }
-                            break;
-                        case 5: // NE
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || IsTileBlocked(X + 1, Y - 1, Z, MapId, ref blockedBy) == -7 || IsTileBlocked(X + 1, Y - 1, Z, MapId, ref blockedBy) == -8)
-                            {
-                                tmpY--;
-                                tmpX++;
-                                Dir = 5;
-                                IsMoving = true;
-                                IsJumping = true;
-                                Globals.Me.Jumping = true;
-                                OffsetY = Options.TileHeight;
-                                OffsetX = -Options.TileWidth;
-                                JumpHeight++;
-                                JumpDir = 5;
-                            }
-                            else
-                            {
-                                JumpHeight = 1;
-                                JumpDir = -1;
-                                IsJumping = false;
-                                Globals.Me.Jumping = false;
-                            }
-                            break;
-                        case 6: // SW
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || IsTileBlocked(X - 1, Y + 1, Z, MapId, ref blockedBy) == -7)
-                            {
-
-                                if (Globals.Me.FallCount > 2)
-                                {
-                                    if (IsTileBlocked(X - 1, Y + 2, Z, MapId, ref blockedBy) == -1)
-                                    {
-                                        tmpY += 2;
-                                        tmpX--;
-                                        IsMoving = true;
-                                        Dir = 6;
-                                        OffsetY = -(Options.TileHeight * 2);
-                                        OffsetX = Options.TileWidth;
-                                        FallDir = 6;
-                                    }
-                                    else
-                                    {
-                                        FallCount = 0;
-                                        FallDir = 1;
-                                        Dir = 1;
-                                        Landing = true;
-                                    }
-
-                                }
-                                else
-                                {
-                                    tmpY++;
-                                    tmpX--;
-                                    Dir = 6;
-                                    IsMoving = true;
-                                    IsJumping = true;
-                                    OffsetY = -Options.TileHeight;
-                                    OffsetX = Options.TileWidth;
-                                    FallDir = 6;
-                                }
-                            }
-                            else
-                            {
-                                FallDir = 1;
-                            }
-                            break;
-
-                        case 7: // SE
-                            if (IsTileBlocked(X, Y - 1, Z, MapId, ref blockedBy) == -1 || IsTileBlocked(X + 1, Y + 1, Z, MapId, ref blockedBy) == -7)
-                            {
-                                if (Globals.Me.FallCount > 2)
-                                {
-                                    if (IsTileBlocked(X + 1, Y + 2, Z, MapId, ref blockedBy) == -1)
-                                    {
-                                        tmpY += 2;
-                                        tmpX += 1;
-                                        IsMoving = true;
-                                        Dir = 7;
-                                        OffsetY = -(Options.TileHeight*2);
-                                        OffsetX = -Options.TileWidth;
-                                        FallDir = 7;
-                                    }
-                                    else
-                                    {
-                                        FallCount = 0;
-                                        FallDir = 1;
-                                        Dir = 1;
-                                        Landing = true;
-                                    }
-                                   
-                                }
-                                else
-                                {
-                                    tmpY++;
-                                    tmpX++;
-                                    Dir = 7;
-                                    IsMoving = true;
-                                    IsJumping = true;
-                                    OffsetY = -Options.TileHeight;
-                                    OffsetX = -Options.TileWidth;
-                                    FallDir = 7;
-                                }
-                            }
-                            else
-                            {
-                                FallDir = 1;
-                            }
-                            break;
-                    }
-
-                    if (blockedBy != mLastBumpedEvent)
-                    {
-                        mLastBumpedEvent = null;
-                    }
-
-                    if (IsMoving)
-                    {
-                        if (tmpX < 0 || tmpY < 0 || tmpX > Options.MapWidth - 1 || tmpY > Options.MapHeight - 1)
-                        {
-                            var gridX = Maps.MapInstance.Get(Globals.Me.MapId).GridX;
-                            var gridY = Maps.MapInstance.Get(Globals.Me.MapId).GridY;
-                            if (tmpX < 0)
-                            {
-                                gridX--;
-                                X = (byte)(Options.MapWidth - 1);
-                            }
-                            else if (tmpX >= Options.MapWidth)
-                            {
-                                X = 0;
-                                gridX++;
-                            }
-                            else
-                            {
-                                X = (byte)tmpX;
-                            }
-
-                            if (tmpY < 0)
-                            {
-                                gridY--;
-                                Y = (byte)(Options.MapHeight - 1);
-                            }
-                            else if (tmpY >= Options.MapHeight)
-                            {
-                                Y = 0;
-                                gridY++;
-                            }
-                            else
-                            {
-                                Y = (byte)tmpY;
-                            }
-
-                            if (MapId != Globals.MapGrid[gridX, gridY])
-                            {
-                                MapId = Globals.MapGrid[gridX, gridY];
-                                FetchNewMaps();
-                            }
-
-                        }
-                        else
-                        {
-                            X = (byte)tmpX;
-                            Y = (byte)tmpY;
-                        }
-
-                        TryToChangeDimension();
-                        PacketSender.SendMove();
-                        MoveTimer = (Timing.Global.Milliseconds) + (long)GetMovementTime();
-                    }
-                    else
-                    {
-                        if (MoveDir != Dir)
-                        {
-                            Dir = (byte)MoveDir;
-                            PacketSender.SendDirection(Dir);
-                        }
-
-                        if (blockedBy != null && mLastBumpedEvent != blockedBy && blockedBy is Event)
-                        {
-                            PacketSender.SendBumpEvent(blockedBy.MapId, blockedBy.Id);
-                            mLastBumpedEvent = blockedBy as Entity;
-                        }
-                    }
+                    PacketSender.SendBumpEvent(blockedBy.MapId, blockedBy.Id);
+                    mLastBumpedEvent = blockedBy as Entity;
                 }
             }
         }

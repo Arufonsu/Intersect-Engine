@@ -700,7 +700,7 @@ namespace Intersect.Server.Networking
                 (Options.Instance.PlayerOpts.AllowCombatMovement || player.ClientAttackTimer <= clientTime))
             {
                 var canMove = player.CanMove(packet.Dir);
-                if ((canMove == -1 || canMove == -4) && client.Entity.MoveRoute == null)
+                if ((canMove == -1 || canMove == -4 || canMove == -7 || canMove == -8) && client.Entity.MoveRoute == null)
                 {
                     if ((packet.Dir == 0 || packet.Dir == 4 || packet.Dir == 5) && packet.Jh > Options.JumpHeight &&
                         client.Entity.MoveRoute == null)
@@ -709,7 +709,6 @@ namespace Intersect.Server.Networking
                         return;
                     }
 
-                    Globals.FallCount = packet.Fc;
                     player.Move(packet.Dir, player, false);
                     var utcDeltaMs = (Timing.Global.TicksUtc - packet.UTC) / TimeSpan.TicksPerMillisecond;
                     var latencyAdjustmentMs = -(client.Ping + Math.Max(0, utcDeltaMs));

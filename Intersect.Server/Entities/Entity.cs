@@ -3,9 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
-using System.Net.Http.Headers;
 using System.Threading;
-using System.Web.UI;
 using Intersect.Enums;
 using Intersect.GameObjects;
 using Intersect.GameObjects.Events;
@@ -81,6 +79,28 @@ namespace Intersect.Server.Entities
         public int Dir { get; set; }
 
         public string Sprite { get; set; }
+        
+        // Movement
+        [JsonIgnore, NotMapped]
+        public bool IsJumping { get; set; } = false;
+
+        [JsonIgnore, NotMapped]
+        public bool Jumping { get; set; } = false;
+
+        [JsonIgnore, NotMapped]
+        public bool Falling { get; set; } = false;
+
+        [JsonIgnore, NotMapped]
+        public float JumpHeight { get; set; } = 0;
+
+        [JsonIgnore, NotMapped]
+        public int JumpDir { get; set; } = -1;
+
+        [JsonIgnore, NotMapped]
+        public int FallDir { get; set; } = 1;
+
+        [JsonIgnore, NotMapped]
+        public bool Climbing { get; set; } = false;
 
         /// <summary>
         /// The database compatible version of <see cref="Color"/>
@@ -413,22 +433,22 @@ namespace Intersect.Server.Entities
                     xOffset++;
 
                     break;
-                case 4: //NW
+                case 4: //UpLeft
                     yOffset--;
                     xOffset--;
 
                     break;
-                case 5: //NE
+                case 5: //UpRight
                     yOffset--;
                     xOffset++;
 
                     break;
-                case 6: //SW
+                case 6: //DownLeft
                     yOffset++;
                     xOffset--;
 
                     break;
-                case 7: //SE
+                case 7: //DownRight
                     yOffset++;
                     xOffset++;
 
@@ -447,61 +467,60 @@ namespace Intersect.Server.Entities
                 var tileAttribute = mapController.Attributes[tileX, tileY];
                 if (tileAttribute != null)
                 {
-                    if (tileAttribute.Type == MapAttributes.Blocked || (tileAttribute.Type == MapAttributes.Animation && ((MapAnimationAttribute)tileAttribute).IsBlock))
+                    switch (tileAttribute.Type)
                     {
-                        return -2;
-                    }
-
-                    if (tileAttribute.Type == MapAttributes.NpcAvoid && (this is Npc || (this is EventPageInstance evtPage && !evtPage.MyPage.IgnoreNpcAvoids)))
-                    {
-                        return -2;
-                    }
-
-                    if (tileAttribute.Type == MapAttributes.ZDimension &&
-                        ((MapZDimensionAttribute) tileAttribute).BlockedLevel > 0 &&
-                        ((MapZDimensionAttribute) tileAttribute).BlockedLevel - 1 == Z)
-                    {
-                        return -3;
-                    }
-
-                    if (tileAttribute.Type == MapAttributes.Slide)
-                    {
-                        if (this is EventPage)
+                        case MapAttributes.Blocked:
+                        case MapAttributes.Animation when ((MapAnimationAttribute)tileAttribute).IsBlock:
                         {
-                            return -4;
+                            return -2;
                         }
+                        case MapAttributes.NpcAvoid when (this is Npc || (this is EventPageInstance evtPage && !evtPage.MyPage.IgnoreNpcAvoids)):
+                            return -2;
+                        case MapAttributes.Platform:
+                            if (moveDir == 1 || Dir == 0)
+                            {
+                                return -1;
+                            }
+                            return -7;
+                        case MapAttributes.Ladder:
+                            return -8;
+                        case MapAttributes.ZDimension when ((MapZDimensionAttribute) tileAttribute).BlockedLevel > 0 &&
+                                                           ((MapZDimensionAttribute) tileAttribute).BlockedLevel - 1 == Z:
+                            return -3;
+                        case MapAttributes.Slide:
+                            switch (((MapSlideAttribute) tileAttribute).Direction)
+                            {
+                                case 1:
+                                    if (moveDir == 1)
+                                    {
+                                        return -4;
+                                    }
 
-                        switch (((MapSlideAttribute) tileAttribute).Direction)
-                        {
-                            case 1:
-                                if (moveDir == 1)
-                                {
-                                    return -4;
-                                }
+                                    break;
+                                case 2:
+                                    if (moveDir == 0)
+                                    {
+                                        return -4;
+                                    }
 
-                                break;
-                            case 2:
-                                if (moveDir == 0)
-                                {
-                                    return -4;
-                                }
+                                    break;
+                                case 3:
+                                    if (moveDir == 3)
+                                    {
+                                        return -4;
+                                    }
 
-                                break;
-                            case 3:
-                                if (moveDir == 3)
-                                {
-                                    return -4;
-                                }
+                                    break;
+                                case 4:
+                                    if (moveDir == 2)
+                                    {
+                                        return -4;
+                                    }
 
-                                break;
-                            case 4:
-                                if (moveDir == 2)
-                                {
-                                    return -4;
-                                }
+                                    break;
+                            }
 
-                                break;
-                        }
+                            break;
                     }
                 }
             }
@@ -510,64 +529,49 @@ namespace Intersect.Server.Entities
                 return -5; //Out of Bounds
             }
 
-            if (!Passable)
+            if (Passable)
             {
-                var targetMap = mapController;
-                var mapEntities = new List<Entity>();
-                if (mapController.TryGetInstance(MapInstanceId, out var mapInstance))
+                return IsTileWalkable(tile.GetMap(), tile.GetX(), tile.GetY(), Z);
+            }
+
+            var mapEntities = new List<Entity>();
+            if (mapController.TryGetInstance(MapInstanceId, out var mapInstance))
+            {
+                mapEntities.AddRange(mapInstance.GetCachedEntities());
+            }
+
+            for (var index = 0; index < mapEntities.Count; index++)
+            {
+                var en = mapEntities[index];
+                if (en == null || en.X != tileX || en.Y != tileY || en.Z != Z || en.Passable)
                 {
-                    mapEntities.AddRange(mapInstance.GetCachedEntities());
-                }
-                foreach (var en in mapEntities)
-                {
-                    if (en != null && en.X == tileX && en.Y == tileY && en.Z == Z && !en.Passable)
-                    {
-                        //Set a target if a projectile
-                        CollisionIndex = en.Id;
-                        if (en is Player)
-                        {
-                            if (this is Player)
-                            {
-                                //Check if this target player is passable....
-                                if (!Options.Instance.Passability.Passable[(int)targetMap.ZoneType])
-                                {
-                                    return (int)EntityTypes.Player;
-                                }
-                            }
-                            else
-                            {
-                                return (int)EntityTypes.Player;
-                            }
-                        }
-                        else if (en is Npc)
-                        {
-                            return (int)EntityTypes.Player;
-                        }
-                        else if (en is Resource resource)
-                        {
-                            //If determine if we should walk
-                            if (!resource.IsPassable())
-                            {
-                                return (int)EntityTypes.Resource;
-                            }
-                        }
-                    }
+                    continue;
                 }
 
-                //If this is an npc or other event.. if any global page exists that isn't passable then don't walk here!
-                if (!(this is Player) && mapInstance != null)
+                //Set a target if a projectile
+                CollisionIndex = en.Id;
+                switch (en)
                 {
-                    foreach (var evt in mapInstance.GlobalEventInstances)
-                    {
-                        foreach (var en in evt.Value.GlobalPageInstance)
-                        {
-                            if (en != null && en.X == tileX && en.Y == tileY && en.Z == Z && !en.Passable)
-                            {
-                                return (int)EntityTypes.Event;
-                            }
-                        }
-                    }
+                    case Player _ when this is Player:
+                    case Player _:
+                    case Npc _:
+                        return -1;
+                    //If determine if we should walk
+                    case Resource resource when !resource.IsPassable():
+                        return (int)EntityTypes.Resource;
                 }
+            }
+
+            //If this is an npc or other event.. if any global page exists that isn't passable then don't walk here!
+            if (mapInstance == null)
+            {
+                return -5;
+            }
+
+            if (mapInstance.GlobalEventInstances.SelectMany(evt => evt.Value.GlobalPageInstance)
+                .Any(en => en != null && en.X == tileX && en.Y == tileY && en.Z == Z && !en.Passable))
+            {
+                return (int)EntityTypes.Event;
             }
 
             return IsTileWalkable(tile.GetMap(), tile.GetX(), tile.GetY(), Z);
@@ -941,7 +945,7 @@ namespace Intersect.Server.Entities
             {
                 return;
             }
-
+            
             lock (EntityLock)
             {
                 if (this is Player && IsCasting && Options.Combat.MovementCancelsCast)
@@ -952,103 +956,218 @@ namespace Intersect.Server.Entities
 
                 var xOffset = 0;
                 var yOffset = 0;
-                if (forPlayer == null)
-                {
-                    switch (moveDir)
+                // if (forPlayer == null)
+                // {
+                //     //PlatformingChecksA();
+                // }
+                PlatformingChecksA();
+                switch (moveDir)
                     {
-                        case 2: //Left
-                            --xOffset;
+                        case 0: // Up
+                            if (CanMove(0) == -2)
+                            {
+                                return;
+                            }
+
+                            if (CanMove(0) == -1 || CanMove(0) == -7 || CanMove(0) == -8)
+                            {
+                                Dir = 0;
+                                --yOffset;
+                            }
+
+                            if (CanMove(0) == -8)
+                            {
+                                Climbing = true;
+                                Jumping = false;
+                                IsJumping = false;
+                            }
+                            else
+                            {
+                                Climbing = false;
+                                Jumping = true;
+                                JumpDir = 0;
+                                JumpHeight++;
+                            }
 
                             break;
-                        case 3: //Right
-                            ++xOffset;
+
+                        case 1: // Down
+                            int downTile1 = CanMove(1);
+                            int downTile2 = CanMove(-1);
+
+                            if (downTile1 == -2)
+                            {
+                                yOffset = 0;
+                                xOffset = 0;
+                                break;
+                            }
+
+                            if (downTile1 == -1 || downTile1 == -7 || downTile2 == -1 || downTile2 == -7 ||
+                                downTile1 == -8 ||
+                                downTile2 == -8)
+                            {
+                                Dir = 1;
+                                ++yOffset;
+                            }
+
+                            if (downTile2 == -8)
+                            {
+                                Climbing = true;
+                                Jumping = false;
+                                IsJumping = false;
+                            }
+                            else
+                            {
+                                EdgeBlockOnGround();
+                            }
 
                             break;
-                        default:
-                            Log.Warn(
-                                new ArgumentOutOfRangeException(nameof(moveDir),
-                                    $@"Bogus move attempt in direction {moveDir}.")
-                            );
 
-                            return;
+                        case 2: // Left
+                            switch (CanMove(2))
+                            {
+                                case -1:
+                                case -7 when OnGround():
+                                case -8:
+                                    --xOffset;
+                                    Dir = 2;
+                                    break;
+                                case -2:
+                                    yOffset = 0;
+                                    xOffset = 0;
+                                    break;
+                            }
+
+                            if (!Falling && (CanMove(6) == -1 ||
+                                             CanMove(2) == -1))
+                            {
+                                EdgeBlockOnGround();
+                            }
+
+                            break;
+
+                        case 3: // Right
+                            switch (CanMove(3))
+                            {
+                                case -1:
+                                case -7 when OnGround():
+                                case -8:
+                                    ++xOffset;
+                                    Dir = 3;
+                                    break;
+                                case -2:
+                                    yOffset = 0;
+                                    xOffset = 0;
+                                    break;
+                            }
+
+                            if (!Falling && (CanMove(7) == -1 ||
+                                             CanMove(3) == -1))
+                            {
+                                EdgeBlockOnGround();
+                            }
+
+                            break;
+
+                        case 4: // UpLeft
+                            int upLeft1 = CanMove(4);
+                            int upLeft2 = CanMove(2);
+                            if (upLeft1 == -1 || upLeft2 == -1 || upLeft1 == -8 || upLeft2 == -8 || upLeft1 == -7 ||
+                                upLeft2 == -7)
+                            {
+                                IsJumping = true;
+                                Jumping = true;
+                                Climbing = false;
+                                Dir = 4;
+                                JumpDir = 4;
+                                JumpHeight++;
+                                --yOffset;
+                                --xOffset;
+                            }
+
+                            if (upLeft1 == -2 || upLeft2 == -2)
+                            {
+                                BlockTileOnAir();
+                                ++yOffset;
+                            }
+
+                            break;
+
+                        case 5: // UpRight
+                            int upRight1 = CanMove(5);
+                            int upRight2 = CanMove(3);
+                            if (upRight1 == -1 || upRight2 == -1 || upRight1 == -8 || upRight2 == -8 ||
+                                upRight1 == -7 ||
+                                upRight2 == -7)
+                            {
+                                IsJumping = true;
+                                Jumping = true;
+                                Climbing = false;
+                                Dir = 5;
+                                JumpDir = 5;
+                                JumpHeight++;
+                                --yOffset;
+                                ++xOffset;
+                            }
+
+                            if (upRight1 == -2 || upRight2 == -2)
+                            {
+                                BlockTileOnAir();
+                                ++yOffset;
+                            }
+
+                            break;
+
+                        case 6: // DownLeft
+                            if (OnGround())
+                            {
+                                break;
+                            }
+
+                            int downLeft1 = CanMove(6);
+                            int downLeft2 = CanMove(2);
+                            if (downLeft1 == -1 || downLeft2 == -1 || downLeft1 == -8 || downLeft2 == -8)
+                            {
+                                IsJumping = true;
+                                Dir = 6;
+                                FallDir = 6;
+                                ++yOffset;
+                                --xOffset;
+                            }
+
+                            if (downLeft1 == -2 || downLeft2 == -2)
+                            {
+                                BlockTileOnAir();
+                                ++yOffset;
+                            }
+
+                            break;
+
+                        case 7: // DownRight
+                            if (OnGround())
+                            {
+                                break;
+                            }
+
+                            int downRight1 = CanMove(7);
+                            int downRight2 = CanMove(3);
+                            if (downRight1 == -1 || downRight2 == -1 || downRight1 == -8 || downRight2 == -8)
+                            {
+                                IsJumping = true;
+                                Dir = 7;
+                                FallDir = 7;
+                                ++yOffset;
+                                ++xOffset;
+                            }
+
+                            if (downRight2 == -2 || downRight2 == -2)
+                            {
+                                BlockTileOnAir();
+                                ++yOffset;
+                            }
+
+                            break;
                     }
-                }
-                else
-                {
-                    switch (moveDir)
-                    {
-                        case 0: //Up
-                            --yOffset;
-
-                            break;
-                        case 1: //Down
-                            if (Globals.FallCount > 2)
-                            {
-                                ++yOffset;
-                                ++yOffset;
-                            }
-                            else
-                            {
-                                ++yOffset;
-                            }
-
-                            break;
-                        case 2: //Left
-                            --xOffset;
-
-                            break;
-                        case 3: //Right
-                            ++xOffset;
-
-                            break;
-                        case 4: //NW
-                            --yOffset;
-                            --xOffset;
-
-                            break;
-                        case 5: //NE
-                            --yOffset;
-                            ++xOffset;
-
-                            break;
-                        case 6: //SW
-                            if (Globals.FallCount > 2)
-                            {
-                                ++yOffset;
-                                ++yOffset;
-                            }
-                            else
-                            {
-                                ++yOffset;
-                            }
-
-                            --xOffset;
-
-                            break;
-                        case 7: //SE
-                            if (Globals.FallCount > 2)
-                            {
-                                ++yOffset;
-                                ++yOffset;
-                            }
-                            else
-                            {
-                                ++yOffset;
-                            }
-
-                            ++xOffset;
-
-                            break;
-
-                        default:
-                            Log.Warn(
-                                new ArgumentOutOfRangeException(nameof(moveDir),
-                                    $@"Bogus move attempt in direction {moveDir}.")
-                            );
-
-                            return;
-                    }
-                }
 
                 Dir = moveDir;
 
@@ -1109,21 +1228,7 @@ namespace Intersect.Server.Entities
 
                     if (doNotUpdate == false)
                     {
-                        if (this is EventPageInstance)
-                        {
-                            if (forPlayer != null)
-                            {
-                                PacketSender.SendEntityMoveTo(forPlayer, this, correction);
-                            }
-                            else
-                            {
-                                PacketSender.SendEntityMove(this, correction);
-                            }
-                        }
-                        else
-                        {
-                            PacketSender.SendEntityMove(this, correction);
-                        }
+                        PacketSender.SendEntityMove(this, correction);
 
                         //Check if moving into a projectile.. if so this npc needs to be hit
                         if (currentMap != null)
@@ -2799,47 +2904,42 @@ namespace Intersect.Server.Entities
             var x2 = target.X + MapController.Get(target.MapId).MapGridX * Options.MapWidth;
             var y2 = target.Y + MapController.Get(target.MapId).MapGridY * Options.MapHeight;
 
-            // Determine the direction of attack based on the difference between the attacker and the target positions.
-            if (x1 - x2 < 0)
+
+            // When to attack in fact. Basically it's when the NPC is next tile from me. So right now it's always N, S, E, W
+            //Left or Right
+            if (x1 - x2 < 0 && y1 - y2 < 0)
             {
-                if (y1 - y2 < 0)
-                {
-                    return (byte)Directions.DownRight;
-                }
+                return (byte)Directions.DownRight;
+            }
 
-                if (y1 - y2 > 0)
-                {
-                    return (byte)Directions.UpRight;
-                }
-
+            if (x1 - x2 < 0 && y1 - y2 > 0)
+            {
+                return (byte)Directions.UpRight;
+            }
+            if (x1 - x2 < 0 && y1 - y2 == 0)
+            {
                 return (byte)Directions.Right;
             }
-
-            if (x1 - x2 > 0)
+            if (x1 - x2 > 0 && y1 - y2 < 0)
             {
-                if (y1 - y2 < 0)
-                {
-                    return (byte)Directions.DownLeft;
-                }
-
-                if (y1 - y2 > 0)
-                {
-                    return (byte)Directions.UpLeft;
-                }
-
+                return (byte)Directions.DownLeft;
+            }
+            if (x1 - x2 > 0 && y1 - y2 > 0)
+            {
+                return (byte)Directions.UpLeft;
+            }
+            if (x1 - x2 > 0 && y1 - y2 == 0)
+            {
                 return (byte)Directions.Left;
             }
-
-            if (y1 - y2 < 0)
+            if (x1 - x2 == 0 && y1 - y2 < 0)
             {
                 return (byte)Directions.Down;
             }
-
-            if (y1 - y2 > 0)
+            if (x1 - x2 == 0 && y1 - y2 > 0)
             {
                 return (byte)Directions.Up;
             }
-
             return 0;
         }
 

@@ -480,6 +480,16 @@ namespace Intersect.Editor.Forms.DockingElements
             HideAttributeMenus();
         }
 
+        private void rbPlatform_CheckedChanged(object sender, EventArgs e)
+        {
+            HideAttributeMenus();
+        }
+
+        private void rbLadder_CheckedChanged(object sender, EventArgs e)
+        {
+            HideAttributeMenus();
+        }
+
         private void rbNPCAvoid_CheckedChanged(object sender, EventArgs e)
         {
             HideAttributeMenus();
@@ -570,56 +580,6 @@ namespace Intersect.Editor.Forms.DockingElements
             return 0;
         }
 
-        public int GetAttributeFromEditor()
-        {
-            if (rbBlocked.Checked == true)
-            {
-                return (int) MapAttributes.Blocked;
-            }
-            else if (rbItem.Checked == true)
-            {
-                return (int) MapAttributes.Item;
-            }
-            else if (rbZDimension.Checked == true)
-            {
-                return (int) MapAttributes.ZDimension;
-            }
-            else if (rbNPCAvoid.Checked == true)
-            {
-                return (int) MapAttributes.NpcAvoid;
-            }
-            else if (rbWarp.Checked == true)
-            {
-                return (int) MapAttributes.Warp;
-            }
-            else if (rbSound.Checked == true)
-            {
-                return (int) MapAttributes.Sound;
-            }
-            else if (rbResource.Checked == true)
-            {
-                return (int) MapAttributes.Resource;
-            }
-            else if (rbAnimation.Checked == true)
-            {
-                return (int) MapAttributes.Animation;
-            }
-            else if (rbGrappleStone.Checked == true)
-            {
-                return (int) MapAttributes.GrappleStone;
-            }
-            else if (rbSlide.Checked == true)
-            {
-                return (int) MapAttributes.Slide;
-            }
-            else if (rbCritter.Checked == true)
-            {
-                return (int) MapAttributes.Critter;
-            }
-
-            return (int) MapAttributes.Walkable;
-        }
-
         private MapAttributes SelectedMapAttributeType
         {
             get
@@ -678,6 +638,16 @@ namespace Intersect.Editor.Forms.DockingElements
                 {
                     return MapAttributes.Critter;
                 }
+                
+                if (rbPlatform.Checked)
+                {
+                    return MapAttributes.Platform;
+                }
+
+                if (rbLadder.Checked)
+                {
+                    return MapAttributes.Ladder;
+                }
 
                 return (MapAttributes) byte.MaxValue;
             }
@@ -694,6 +664,8 @@ namespace Intersect.Editor.Forms.DockingElements
                 case MapAttributes.Blocked:
                 case MapAttributes.GrappleStone:
                 case MapAttributes.NpcAvoid:
+                case MapAttributes.Platform:
+                case MapAttributes.Ladder:
                     break;
 
                 case MapAttributes.Item:
@@ -1055,6 +1027,8 @@ namespace Intersect.Editor.Forms.DockingElements
             rbGrappleStone.Text = Strings.Attributes.Grapple;
             rbSlide.Text = Strings.Attributes.Slide;
             rbCritter.Text = Strings.Attributes.Critter;
+            rbPlatform.Text = Strings.Attributes.platform;
+            rbLadder.Text = Strings.Attributes.ladder;
 
             //Map Animation Groupbox
             grpAnimation.Text = Strings.Attributes.MapAnimation;

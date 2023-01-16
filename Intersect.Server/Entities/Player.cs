@@ -250,8 +250,7 @@ namespace Intersect.Server.Entities
 
         [NotMapped, JsonIgnore]
         public int InstanceLives { get; set; }
-
-        public int FallCount = 0;
+        
         public static Player FindOnline(Guid id)
         {
             return OnlinePlayers.ContainsKey(id) ? OnlinePlayers[id] : null;

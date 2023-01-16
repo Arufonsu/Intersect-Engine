@@ -105,11 +105,21 @@ namespace Intersect.Client.Entities
 
         public bool InView { get; set; } = true;
 
-        public bool IsLocal { get; set; } = false;
-
         public bool IsMoving { get; set; }
 
-        public bool IsJumping;
+        public bool IsJumping { get; set; } = false;
+
+        public bool Jumping { get; set; } = false;
+
+        public bool Falling { get; set; } = false;
+
+        public float JumpHeight { get; set; } = 0;
+
+        public int JumpDir { get; set; } = -1;
+
+        public int FallDir { get; set; } = 1;
+
+        public bool Climbing { get; set; } = false;
 
         //Caching
         public IMapInstance LatestMap { get; set; }
@@ -525,6 +535,21 @@ namespace Intersect.Client.Entities
             ClearAnimations(null);
             mDisposed = true;
         }
+        
+        public bool OnGround()
+        {
+            bool result = false;
+
+            IEntity blockedBy = null;
+
+            // This means that the entity is on the ground as we know it.
+            if (IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -2 || IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -7 || IsTileBlocked(X, Y + 1, Z, MapId, ref blockedBy) == -8)
+            {
+                result = true;
+            }
+
+            return result;
+        }
 
         //Returns the amount of time required to traverse 1 tile
         public virtual float GetMovementTime()
@@ -702,15 +727,7 @@ namespace Intersect.Client.Entities
                         
                         break;
                     case 6: //SW
-                        if (Globals.Me.FallCount > 2 || Globals.Me.Landing == true)
-                        {
-                            OffsetY += (deplacementTime * 2f);
-                        }
-                        else
-                        {
-                            OffsetY += deplacementTime;
-                        }
-                        
+                        OffsetY += deplacementTime;
                         OffsetX -= deplacementTime;
 
                         if (OffsetY > 0)
@@ -725,17 +742,9 @@ namespace Intersect.Client.Entities
 
                         break;
                     case 7: // SE
-                        if (Globals.Me.FallCount > 2 || Globals.Me.Landing == true)
-                        {
-                            OffsetY += (deplacementTime*2f);
-                        }
-                        else
-                        {
-                            OffsetY += deplacementTime;
-                        }
+                        OffsetY += deplacementTime;
                         OffsetX += deplacementTime;
 
-                        Console.WriteLine("OffsetY " + OffsetY);
                         if (OffsetY > 0)
                         {
                             OffsetY = 0;
@@ -1835,11 +1844,13 @@ namespace Intersect.Client.Entities
             {
                 SpriteAnimation = SpriteAnimations.Jump;
                 LastActionTime = Timing.Global.Milliseconds;
+                this.AddChatBubble($"Falling: " + Falling);
             }
             else if (IsMoving && !IsJumping) //Moving
             {
                 SpriteAnimation = SpriteAnimations.Normal;
                 LastActionTime = Timing.Global.Milliseconds;
+                this.AddChatBubble($"Falling: " + Falling);
             }
             else if (AttackTimer > Timing.Global.Milliseconds && !IsBlocking) //Attacking
             {
@@ -2226,7 +2237,10 @@ namespace Intersect.Client.Entities
 
                                 blockedBy = en.Value;
 
-                                return -6;
+                                // string stat = en.Value.Stat[3].ToString();
+                                // Globals.Me.AddChatBubble(stat);
+                                // return -9;
+                                return -1;
                             }
                         }
                     }
@@ -2248,8 +2262,7 @@ namespace Intersect.Client.Entities
                             !en.Value.Passable)
                         {
                             blockedBy = en.Value;
-
-                            return -4;
+                            return -1;
                         }
                     }
 
@@ -2268,7 +2281,7 @@ namespace Intersect.Client.Entities
                         {
                             blockedBy = en.Value as Critter;
 
-                            return -4;
+                            return -1;
                         }
                     }
                 }
@@ -2280,17 +2293,22 @@ namespace Intersect.Client.Entities
                     {
                         if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Blocked || (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Animation && ((MapAnimationAttribute)gameMap.Attributes[tmpX, tmpY]).IsBlock))
                         {
+
                             return -2;
                         }
                         if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Platform)
                         {
+                            if (MoveDir == 1 || Dir == 0) 
+                            {
+                                return -1;
+                            }
                             return -7;
                         }
                         if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.Ladder)
                         {
                             return -8;
                         }
-                        else if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.ZDimension)
+                        if (gameMap.Attributes[tmpX, tmpY].Type == MapAttributes.ZDimension)
                         {
                             if (((MapZDimensionAttribute)gameMap.Attributes[tmpX, tmpY]).BlockedLevel - 1 == z)
                             {
