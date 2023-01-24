@@ -316,7 +316,6 @@ namespace Intersect.Updater
         private async Task<bool> StreamDownloads()
         {
             var client = new HttpClient();
-
             var files = new List<string>();
 
             while (!mDownloadQueue.IsEmpty)
@@ -326,6 +325,23 @@ namespace Intersect.Updater
                     files.Add(file.Path);
                     mActiveDownloads.TryAdd(file, 0);
                 }
+            }
+
+            // Check if any files are missing, if so return false and let the basic downloader fetch them.
+            for (int i = files.Count - 1; i >= 0; i--)
+            {
+                if (File.Exists(files[i]))
+                {
+                    continue;
+                }
+
+                var updateFile = new UpdateFile() { Path = files[i] };
+                mDownloadQueue.Push(updateFile);
+            }
+
+            if (mDownloadQueue.Count > 0)
+            {
+                return false;
             }
 
             HttpResponseMessage response;
@@ -438,7 +454,6 @@ namespace Intersect.Updater
                 catch (EndOfStreamException eof)
                 {
                     //Good to go?
-                    //TODO Check if any files are missing, if so return false and let the basic downloader code try to fetch them.
                     return true;
                 }
                 catch (Exception ex)
