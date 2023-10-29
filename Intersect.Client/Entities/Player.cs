@@ -890,12 +890,10 @@ namespace Intersect.Client.Entities
         /// </summary>
         /// <param name="bankSlotIndex">The slot of the bank slot to withdraw the item from.</param>
         /// <param name="inventorySlotIndex">The slot of the inventory to deposit the item into.</param>
-        /// <param name="contextMenu">Indicates if the action was triggered by a context menu.</param>
-        /// <param name="shiftKey">Indicates if the action was triggered by the shift key.</param>
+        /// <param name="hint">An optional hint to guide the action behavior.</param>
         public void TryWithdrawItem(int bankSlotIndex,
             int inventorySlotIndex = -1,
-            bool contextMenu = false,
-            bool shiftKey = false)
+            int hint = -1)
         {
             var bankSlot = Globals.Bank[bankSlotIndex];
             if (!ItemBase.TryGet(bankSlot.ItemId, out var itemDescriptor))
@@ -925,8 +923,7 @@ namespace Intersect.Client.Entities
                 bankSlot.Quantity,
                 availableInventorySpaceForItem,
                 itemDescriptor,
-                contextMenu,
-                shiftKey);
+                hint);
         }
 
         /// <summary>
@@ -938,42 +935,41 @@ namespace Intersect.Client.Entities
         /// <param name="itemQuantityInBankSlot">The quantity of the item in the source bank slot.</param>
         /// <param name="availableInventorySpaceForItem">The available space in the player's inventory for the item.</param>
         /// <param name="itemDescriptor">The descriptor of the item being withdrawn.</param>
-        /// <param name="contextMenu">Indicates if the action was triggered by a context menu.</param>
-        /// <param name="shiftKey">Indicates if the action was triggered by the shift key.</param>
+        /// <param name="hint">An optional hint to guide the action behavior.</param>
         private void WithdrawItem(int bankSlot,
             int inventorySlot,
             int itemQuantityInBank,
             int itemQuantityInBankSlot,
             int availableInventorySpaceForItem,
             ItemBase itemDescriptor,
-            bool contextMenu,
-            bool shiftKey)
+            int hint)
         {
-            if (shiftKey)
-            {
-                PacketSender.SendWithdrawItem(bankSlot, availableInventorySpaceForItem);
-                return;
-            }
-
-            if (itemQuantityInBank == 1 || availableInventorySpaceForItem == 1 ||
-                !contextMenu && itemQuantityInBankSlot == 1)
-            {
-                PacketSender.SendWithdrawItem(bankSlot, 1, inventorySlot);
-                return;
-            }
-
             if (itemQuantityInBankSlot > availableInventorySpaceForItem)
             {
                 itemQuantityInBankSlot = availableInventorySpaceForItem;
             }
 
-            if ((inventorySlot > -1) || // Dragging item(s) into an inventory slot.
-                (!contextMenu && itemQuantityInBank <= itemDescriptor.MaxBankStack)) // One stack in bank.
+            // Shift key pressed - move everything we can right away.
+            if (hint == 1)
+            {
+                PacketSender.SendWithdrawItem(bankSlot, availableInventorySpaceForItem);
+                return;
+            }
+            
+            if (inventorySlot > -1 || // Dragging item(s) into an inventory slot.
+                itemQuantityInBank <= itemDescriptor.MaxBankStack) // One stack in bank.
             {
                 PacketSender.SendWithdrawItem(bankSlot, itemQuantityInBankSlot, inventorySlot);
                 return;
             }
-
+            
+            // One item in bank or one space in inventory.
+            if (availableInventorySpaceForItem == 1 || itemQuantityInBank == 1 || itemQuantityInBankSlot == 1)
+            {
+                PacketSender.SendWithdrawItem(bankSlot, 1, inventorySlot);
+                return;
+            }
+            
             InputBox.Open(
                 title: Strings.Bank.withdrawitem,
                 prompt: Strings.Bank.withdrawitemprompt.ToString(itemDescriptor.Name),
@@ -982,11 +978,11 @@ namespace Intersect.Client.Entities
                 onSuccess: WithdrawItemInputBoxOkay,
                 onCancel: null,
                 userData: new[] { bankSlot, inventorySlot },
-                quantity: contextMenu ? availableInventorySpaceForItem : itemQuantityInBankSlot,
+                quantity: hint == 0 ? availableInventorySpaceForItem : itemQuantityInBankSlot,
                 maxQuantity: availableInventorySpaceForItem
             );
         }
-
+        
         private bool IsGuildBankWithdrawAllowed()
         {
             return !string.IsNullOrWhiteSpace(Globals.Me.Guild) &&
